@@ -16,6 +16,8 @@ limitations under the License.
 package celscanner
 
 import (
+	"fmt"
+
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -483,16 +485,16 @@ func (b *RuleBuilder) WithExtension(key string, value interface{}) *RuleBuilder 
 }
 
 // Build returns the completed rule with validation
-func (b *RuleBuilder) Build() CelRule {
+func (b *RuleBuilder) Build() (CelRule, error) {
 	// Validate that we have essential components
 	if b.rule.ID == "" {
-		panic("Rule ID is required")
+		return nil, fmt.Errorf("Rule ID is required")
 	}
 	if b.rule.CelExpr == "" {
-		panic("Rule expression is required")
+		return nil, fmt.Errorf("Rule expression is required")
 	}
 	if len(b.rule.RuleInputs) == 0 {
-		panic("At least one input is required")
+		return nil, fmt.Errorf("At least one input is required")
 	}
 
 	// TODO: Add expression validation against input names
@@ -501,7 +503,7 @@ func (b *RuleBuilder) Build() CelRule {
 	// 2. Extract variable references
 	// 3. Ensure all referenced variables have corresponding inputs
 
-	return b.rule
+	return b.rule, nil
 }
 
 // GetAvailableInputNames returns the names of all defined inputs (useful for expression building)
