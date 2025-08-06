@@ -23,12 +23,15 @@ func main() {
 	// Example 1: Scanning a configuration file
 	fmt.Println("\n1. Scanning a configuration file:")
 	// This shows how to create a rule with file input using NEW PATTERN
-	configRule := celscanner.NewRuleBuilder("config-check").
+	configRule, err := celscanner.NewRuleBuilder("config-check").
 		WithFileInput("config", "test-app/config.yaml", "yaml", false, false).
 		SetExpression("config.database.host == 'localhost' && config.database.port == 5432").
 		WithName("Configuration Validation").
 		WithDescription("Check database configuration").
 		Build()
+	if err != nil {
+		log.Fatalf("Failed to build config rule: %v", err)
+	}
 
 	fmt.Printf("   Created rule: %s\n", configRule.Metadata().Name)
 	fmt.Printf("   Expression: %s\n", configRule.Expression())
@@ -52,12 +55,15 @@ func main() {
 	// Example 2: Scanning directory with multiple files
 	fmt.Println("\n2. Scanning directory with multiple files:")
 	// This shows how to create a rule with directory input using NEW PATTERN
-	dirRule := celscanner.NewRuleBuilder("dir-check").
+	dirRule, err := celscanner.NewRuleBuilder("dir-check").
 		WithFileInput("configs", "test-app/", "yaml", false, false).
 		SetExpression("size(configs) > 0").
 		WithName("Directory Validation").
 		WithDescription("Check configuration directory").
 		Build()
+	if err != nil {
+		log.Fatalf("Failed to build dir rule: %v", err)
+	}
 
 	fmt.Printf("   Created rule: %s\n", dirRule.Metadata().Name)
 	fmt.Printf("   Expression: %s\n", dirRule.Expression())

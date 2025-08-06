@@ -40,56 +40,77 @@ func runSecurityComplianceChecks(scanner *celscanner.Scanner) {
 	fmt.Println(strings.Repeat("-", 40))
 
 	// Define security rules
+	// SELinux enforcement check
+	selinuxRule, err := celscanner.NewRuleBuilder("selinux-enforcing").
+		WithSystemInput("selinux", "", "getenforce", []string{}).
+		SetExpression(`selinux.success && contains(selinux.output, "Enforcing")`).
+		WithName("SELinux Enforcement Check").
+		WithDescription("Ensures SELinux is in enforcing mode").
+		WithExtension("severity", "HIGH").
+		WithExtension("compliance", "STIG").
+		Build()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to build SELinux rule: %v", err))
+	}
+
+	// Firewall status check
+	firewallRule, err := celscanner.NewRuleBuilder("firewall-active").
+		WithSystemInput("firewall", "", "systemctl", []string{"is-active", "firewalld"}).
+		SetExpression(`firewall.success`).
+		WithName("Firewall Status Check").
+		WithDescription("Ensures firewall service is active").
+		WithExtension("severity", "CRITICAL").
+		WithExtension("compliance", "CIS").
+		Build()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to build firewall rule: %v", err))
+	}
+
+	// SSH service security
+	sshRule, err := celscanner.NewRuleBuilder("ssh-service-check").
+		WithSystemInput("ssh", "sshd", "", []string{}).
+		SetExpression(`ssh.success && ssh.status == "active"`).
+		WithName("SSH Service Security").
+		WithDescription("Validates SSH service is properly configured").
+		WithExtension("severity", "HIGH").
+		WithExtension("service", "sshd").
+		Build()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to build SSH rule: %v", err))
+	}
+
+	// User session monitoring
+	sessionsRule, err := celscanner.NewRuleBuilder("user-sessions").
+		WithSystemInput("sessions", "", "who", []string{}).
+		SetExpression(`sessions.success`).
+		WithName("Active User Sessions").
+		WithDescription("Monitors currently logged in users").
+		WithExtension("severity", "MEDIUM").
+		WithExtension("monitoring", "continuous").
+		Build()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to build sessions rule: %v", err))
+	}
+
+	// System integrity check
+	integrityRule, err := celscanner.NewRuleBuilder("system-integrity").
+		WithSystemInput("processes", "", "ps", []string{"aux"}).
+		SetExpression(`processes.success && size(processes.output) > 0`).
+		WithName("System Process Integrity").
+		WithDescription("Validates system processes are running").
+		WithExtension("severity", "HIGH").
+		WithExtension("category", "integrity").
+		Build()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to build integrity rule: %v", err))
+	}
+
 	rules := []celscanner.CelRule{
-		// SELinux enforcement check
-		celscanner.NewRuleBuilder("selinux-enforcing").
-			WithSystemInput("selinux", "", "getenforce", []string{}).
-			SetExpression(`selinux.success && contains(selinux.output, "Enforcing")`).
-			WithName("SELinux Enforcement Check").
-			WithDescription("Ensures SELinux is in enforcing mode").
-			WithExtension("severity", "HIGH").
-			WithExtension("compliance", "STIG").
-			Build(),
-
-		// Firewall status check
-		celscanner.NewRuleBuilder("firewall-active").
-			WithSystemInput("firewall", "", "systemctl", []string{"is-active", "firewalld"}).
-			SetExpression(`firewall.success`).
-			WithName("Firewall Status Check").
-			WithDescription("Ensures firewall service is active").
-			WithExtension("severity", "CRITICAL").
-			WithExtension("compliance", "CIS").
-			Build(),
-
-		// SSH service security
-		celscanner.NewRuleBuilder("ssh-service-check").
-			WithSystemInput("ssh", "sshd", "", []string{}).
-			SetExpression(`ssh.success && ssh.status == "active"`).
-			WithName("SSH Service Security").
-			WithDescription("Validates SSH service is properly configured").
-			WithExtension("severity", "HIGH").
-			WithExtension("service", "sshd").
-			Build(),
-
-		// User session monitoring
-		celscanner.NewRuleBuilder("user-sessions").
-			WithSystemInput("sessions", "", "who", []string{}).
-			SetExpression(`sessions.success`).
-			WithName("Active User Sessions").
-			WithDescription("Monitors currently logged in users").
-			WithExtension("severity", "MEDIUM").
-			WithExtension("monitoring", "continuous").
-			Build(),
-
-		// System integrity check
-		celscanner.NewRuleBuilder("system-integrity").
-			WithSystemInput("processes", "", "ps", []string{"aux"}).
-			SetExpression(`processes.success && size(processes.output) > 0`).
-			WithName("System Process Integrity").
-			WithDescription("Validates system processes are running").
-			WithExtension("severity", "HIGH").
-			WithExtension("category", "integrity").
-			Build(),
+		selinuxRule,
+		firewallRule,
+		sshRule,
+		sessionsRule,
+		integrityRule,
 	}
 
 	// Execute each rule

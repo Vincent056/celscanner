@@ -108,7 +108,7 @@ func TestCelRuleInterface(t *testing.T) {
 // TestRuleBuilder validates the fluent builder pattern
 func TestRuleBuilder(t *testing.T) {
 	t.Run("fluent builder", func(t *testing.T) {
-		rule := NewRuleBuilder("builder-test").
+		rule, err := NewRuleBuilder("builder-test").
 			WithKubernetesInput("pods", "", "v1", "pods", "", "").
 			WithFileInput("config", "/etc/config.yaml", "yaml", false, false).
 			WithSystemInput("service", "nginx", "", []string{}).
@@ -116,6 +116,9 @@ func TestRuleBuilder(t *testing.T) {
 			WithName("Test Rule").
 			WithDescription("Test rule for builder").
 			Build()
+		if err != nil {
+			t.Fatalf("Failed to build rule: %v", err)
+		}
 
 		if rule.Identifier() != "builder-test" {
 			t.Errorf("Expected ID 'builder-test', got %s", rule.Identifier())
@@ -343,7 +346,10 @@ func TestBuilderChaining(t *testing.T) {
 		t.Error("Builder methods should return the same builder instance")
 	}
 
-	rule := builder.Build()
+	rule, err := builder.Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
 	if len(rule.Inputs()) != 4 {
 		t.Errorf("Expected 4 inputs after chaining, got %d", len(rule.Inputs()))
 	}

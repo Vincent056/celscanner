@@ -452,7 +452,7 @@ func TestCompositeFetcherBuilder(t *testing.T) {
 
 		assert.NotNil(t, fetcher.kubernetesFetcher)
 	})
-
+ 
 	t.Run("builds with filesystem support", func(t *testing.T) {
 		fetcher := NewCompositeFetcherBuilder().
 			WithFilesystem("/tmp").

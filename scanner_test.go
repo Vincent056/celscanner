@@ -26,6 +26,26 @@ import (
 )
 
 func TestScanner_Scan_WithSimplifiedAPI(t *testing.T) {
+	podExistenceRule, err := NewRuleBuilder("pod-existence-check").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression("size(pods.items) > 0").
+		WithName("Pod Existence Check").
+		WithDescription("Ensures pods exist in the cluster").
+		Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
+
+	configmapValidationRule, err := NewRuleBuilder("configmap-validation").
+		WithKubernetesInput("configmaps", "", "v1", "configmaps", "", "").
+		SetExpression(`configmaps.items.exists(cm, cm.metadata.name == "app-config")`).
+		WithName("ConfigMap Check").
+		WithDescription("Check if specific configmap exists").
+		Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
+
 	tests := []struct {
 		name           string
 		rules          []CelRule
@@ -37,12 +57,7 @@ func TestScanner_Scan_WithSimplifiedAPI(t *testing.T) {
 		{
 			name: "basic pod existence check",
 			rules: []CelRule{
-				NewRuleBuilder("pod-existence-check").
-					WithKubernetesInput("pods", "", "v1", "pods", "", "").
-					SetExpression("size(pods.items) > 0").
-					WithName("Pod Existence Check").
-					WithDescription("Ensures pods exist in the cluster").
-					Build(),
+				podExistenceRule,
 			},
 			expectedCount:  1,
 			expectedStatus: []CheckResultStatus{CheckResultPass},
@@ -51,12 +66,7 @@ func TestScanner_Scan_WithSimplifiedAPI(t *testing.T) {
 		{
 			name: "configmap data validation",
 			rules: []CelRule{
-				NewRuleBuilder("configmap-validation").
-					WithKubernetesInput("configmaps", "", "v1", "configmaps", "", "").
-					SetExpression(`configmaps.items.exists(cm, cm.metadata.name == "app-config")`).
-					WithName("ConfigMap Check").
-					WithDescription("Check if specific configmap exists").
-					Build(),
+				configmapValidationRule,
 			},
 			expectedCount:  1,
 			expectedStatus: []CheckResultStatus{CheckResultPass},
@@ -106,6 +116,24 @@ func TestScanner_Scan_WithSimplifiedAPI(t *testing.T) {
 }
 
 func TestScanner_ErrorHandling(t *testing.T) {
+	invalidExpressionRule, err := NewRuleBuilder("invalid-expression").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression("invalid.expression.syntax...").
+		WithName("Invalid Expression Test").
+		Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
+
+	missingResourceRule, err := NewRuleBuilder("missing-resource").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression("nonexistent.items.size() > 0").
+		WithName("Missing Resource Test").
+		Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
+
 	tests := []struct {
 		name           string
 		rule           CelRule
@@ -114,23 +142,15 @@ func TestScanner_ErrorHandling(t *testing.T) {
 		description    string
 	}{
 		{
-			name: "invalid CEL expression",
-			rule: NewRuleBuilder("invalid-expression").
-				WithKubernetesInput("pods", "", "v1", "pods", "", "").
-				SetExpression("invalid.expression.syntax...").
-				WithName("Invalid Expression Test").
-				Build(),
+			name:           "invalid CEL expression",
+			rule:           invalidExpressionRule,
 			expectError:    false, // Should not fail the scan, but create an ERROR result
 			expectedStatus: CheckResultError,
 			description:    "Should create ERROR result for invalid CEL expression",
 		},
 		{
-			name: "missing resource reference",
-			rule: NewRuleBuilder("missing-resource").
-				WithKubernetesInput("pods", "", "v1", "pods", "", "").
-				SetExpression("nonexistent.items.size() > 0").
-				WithName("Missing Resource Test").
-				Build(),
+			name:           "missing resource reference",
+			rule:           missingResourceRule,
 			expectError:    false, // Should not fail the scan, but create an ERROR result
 			expectedStatus: CheckResultError,
 			description:    "Should create ERROR result for undeclared resource references",
@@ -183,12 +203,15 @@ func TestScanner_ErrorHandling(t *testing.T) {
 
 func TestScanner_WithVariables(t *testing.T) {
 	// Test with variables using the new API
-	rule := NewRuleBuilder("configmap-with-variable").
+	rule, err := NewRuleBuilder("configmap-with-variable").
 		WithKubernetesInput("configmaps", "", "v1", "configmaps", "", "").
 		SetExpression(`configmaps.items.exists(cm, cm.metadata.name == configName)`).
 		WithName("ConfigMap Variable Test").
 		WithDescription("Test rule with variables").
 		Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
 
 	variables := []CelVariable{
 		&TestCelVariable{

@@ -24,25 +24,37 @@ import (
 
 func BenchmarkScanner_Scan(b *testing.B) {
 	// Create test rules using the new unified API
+	podSecurityContextRule, err := NewRuleBuilder("pod-security-context").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression("pods.items.all(pod, has(pod.spec.securityContext))").
+		WithName("Pod Security Context Check").
+		WithDescription("Ensures all pods have security context").
+		Build()
+	if err != nil {
+		b.Fatalf("Failed to build rule: %v", err)
+	}
+	podResourceLimitsRule, err := NewRuleBuilder("pod-resource-limits").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression("pods.items.all(pod, pod.spec.containers.all(container, has(container.resources)))").
+		WithName("Pod Resource Limits Check").
+		WithDescription("Ensures all containers have resource limits").
+		Build()
+	if err != nil {
+		b.Fatalf("Failed to build rule: %v", err)
+	}
+	serviceValidationRule, err := NewRuleBuilder("service-validation").
+		WithKubernetesInput("services", "", "v1", "services", "", "").
+		SetExpression("services.items.all(svc, has(svc.spec.selector))").
+		WithName("Service Selector Check").
+		WithDescription("Ensures all services have selectors").
+		Build()
+	if err != nil {
+		b.Fatalf("Failed to build rule: %v", err)
+	}
 	rules := []CelRule{
-		NewRuleBuilder("pod-security-context").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression("pods.items.all(pod, has(pod.spec.securityContext))").
-			WithName("Pod Security Context Check").
-			WithDescription("Ensures all pods have security context").
-			Build(),
-		NewRuleBuilder("pod-resource-limits").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression("pods.items.all(pod, pod.spec.containers.all(container, has(container.resources)))").
-			WithName("Pod Resource Limits Check").
-			WithDescription("Ensures all containers have resource limits").
-			Build(),
-		NewRuleBuilder("service-validation").
-			WithKubernetesInput("services", "", "v1", "services", "", "").
-			SetExpression("services.items.all(svc, has(svc.spec.selector))").
-			WithName("Service Selector Check").
-			WithDescription("Ensures all services have selectors").
-			Build(),
+		podSecurityContextRule,
+		podResourceLimitsRule,
+		serviceValidationRule,
 	}
 
 	// Create test variables using the new unified API
@@ -82,13 +94,15 @@ func BenchmarkScanner_Scan(b *testing.B) {
 
 func BenchmarkScanner_ScanSingleRule(b *testing.B) {
 	// Create a single rule for focused benchmarking
-	rule := NewRuleBuilder("pod-count").
+	rule, err := NewRuleBuilder("pod-count").
 		WithKubernetesInput("pods", "", "v1", "pods", "", "").
 		SetExpression("pods.items.size() > 0").
 		WithName("Pod Count Check").
 		WithDescription("Ensures pods exist").
 		Build()
-
+	if err != nil {
+		b.Fatalf("Failed to build rule: %v", err)
+	}
 	scanner := NewScanner(nil, &BenchmarkLogger{})
 	testDataDir := setupBenchmarkTestData(b)
 
@@ -110,7 +124,7 @@ func BenchmarkScanner_ScanSingleRule(b *testing.B) {
 
 func BenchmarkScanner_ScanComplexRule(b *testing.B) {
 	// Create a complex rule for performance testing
-	rule := NewRuleBuilder("complex-multi-resource").
+	rule, err := NewRuleBuilder("complex-multi-resource").
 		WithKubernetesInput("pods", "", "v1", "pods", "", "").
 		WithKubernetesInput("services", "", "v1", "services", "", "").
 		WithKubernetesInput("configmaps", "", "v1", "configmaps", "", "").
@@ -131,7 +145,9 @@ func BenchmarkScanner_ScanComplexRule(b *testing.B) {
 		WithName("Complex Multi-Resource Check").
 		WithDescription("Complex rule testing multiple resources").
 		Build()
-
+	if err != nil {
+		b.Fatalf("Failed to build rule: %v", err)
+	}
 	scanner := NewScanner(nil, &BenchmarkLogger{})
 	testDataDir := setupBenchmarkTestData(b)
 
@@ -155,12 +171,15 @@ func BenchmarkScanner_ScanManyRules(b *testing.B) {
 	// Create many rules for scaling tests
 	rules := []CelRule{}
 	for i := 0; i < 50; i++ {
-		rule := NewRuleBuilder(fmt.Sprintf("rule-%d", i)).
+		rule, err := NewRuleBuilder(fmt.Sprintf("rule-%d", i)).
 			WithKubernetesInput("pods", "", "v1", "pods", "", "").
 			SetExpression("pods.items.size() > 0").
 			WithName(fmt.Sprintf("Rule %d", i)).
 			WithDescription(fmt.Sprintf("Test rule %d", i)).
 			Build()
+		if err != nil {
+			b.Fatalf("Failed to build rule: %v", err)
+		}
 		rules = append(rules, rule)
 	}
 

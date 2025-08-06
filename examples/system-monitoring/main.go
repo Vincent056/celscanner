@@ -50,13 +50,17 @@ func main() {
 // Example 1: Basic system command checks
 func runBasicSystemChecks(scanner *celscanner.Scanner) {
 	// Create a simple rule to check if hostname command works
-	rule := celscanner.NewRuleBuilder("hostname-check").
+	rule, err := celscanner.NewRuleBuilder("hostname-check").
 		WithSystemInput("hostname", "", "hostname", []string{}).
 		SetExpression("size(hostname) > 0").
 		WithName("Hostname Check").
 		WithDescription("Verifies that hostname command returns data").
 		WithExtension("category", "system").
 		Build()
+	if err != nil {
+		fmt.Printf("❌ Error building hostname rule: %v\n", err)
+		return
+	}
 
 	// Run the scan
 	config := celscanner.ScanConfig{
@@ -87,7 +91,7 @@ func runBasicSystemChecks(scanner *celscanner.Scanner) {
 // Example 2: Service status monitoring
 func runServiceStatusChecks(scanner *celscanner.Scanner) {
 	// Check SSH service status
-	sshRule := celscanner.NewRuleBuilder("ssh-service-check").
+	sshRule, err := celscanner.NewRuleBuilder("ssh-service-check").
 		WithSystemInput("ssh_service", "sshd", "", []string{}).
 		SetExpression("size(ssh_service) > 0").
 		WithName("SSH Service Status").
@@ -95,6 +99,10 @@ func runServiceStatusChecks(scanner *celscanner.Scanner) {
 		WithExtension("category", "service").
 		WithExtension("service", "sshd").
 		Build()
+	if err != nil {
+		fmt.Printf("❌ Error building SSH rule: %v\n", err)
+		return
+	}
 
 	config := celscanner.ScanConfig{
 		Rules:              []celscanner.CelRule{sshRule},
@@ -123,13 +131,17 @@ func runServiceStatusChecks(scanner *celscanner.Scanner) {
 // Example 3: System information gathering
 func runSystemInfoChecks(scanner *celscanner.Scanner) {
 	// Get system uptime
-	uptimeRule := celscanner.NewRuleBuilder("uptime-check").
+	uptimeRule, err := celscanner.NewRuleBuilder("uptime-check").
 		WithSystemInput("uptime", "", "uptime", []string{}).
 		SetExpression("size(uptime) > 0").
 		WithName("System Uptime").
 		WithDescription("Gets system uptime information").
 		WithExtension("category", "info").
 		Build()
+	if err != nil {
+		fmt.Printf("❌ Error building uptime rule: %v\n", err)
+		return
+	}
 
 	config := celscanner.ScanConfig{
 		Rules:              []celscanner.CelRule{uptimeRule},

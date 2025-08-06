@@ -25,29 +25,38 @@ func main() {
 	fmt.Println("\n1. Creating rules with the new RuleBuilder API:")
 
 	// Security-focused rule
-	securityRule := celscanner.NewRuleBuilder("pod-security-check").
+	securityRule, err := celscanner.NewRuleBuilder("pod-security-check").
 		WithKubernetesInput("pods", "", "v1", "pods", "default", "").
 		SetExpression("size(pods.items) > 0 && pods.items.all(pod, has(pod.spec.securityContext))").
 		WithName("Pod Security Context Check").
 		WithDescription("Ensures all pods have security context defined").
 		Build()
+	if err != nil {
+		log.Fatalf("Failed to build security rule: %v", err)
+	}
 
 	// Resource management rule
-	resourceRule := celscanner.NewRuleBuilder("pod-resource-limits").
+	resourceRule, err := celscanner.NewRuleBuilder("pod-resource-limits").
 		WithKubernetesInput("pods", "", "v1", "pods", "", "").
 		SetExpression("pods.items.all(pod, pod.spec.containers.all(container, has(container.resources.limits)))").
 		WithName("Pod Resource Limits Check").
 		WithDescription("Ensures all containers have resource limits").
 		Build()
+	if err != nil {
+		log.Fatalf("Failed to build resource rule: %v", err)
+	}
 
 	// Multi-resource compliance rule
-	complianceRule := celscanner.NewRuleBuilder("namespace-compliance").
+	complianceRule, err := celscanner.NewRuleBuilder("namespace-compliance").
 		WithKubernetesInput("namespaces", "", "v1", "namespaces", "", "").
 		WithKubernetesInput("networkpolicies", "networking.k8s.io", "v1", "networkpolicies", "", "").
 		SetExpression("size(namespaces.items) > 0 && size(networkpolicies.items) > 0").
 		WithName("Namespace Network Policy Compliance").
 		WithDescription("Ensures namespaces have associated network policies").
 		Build()
+	if err != nil {
+		log.Fatalf("Failed to build compliance rule: %v", err)
+	}
 
 	rules := []celscanner.CelRule{securityRule, resourceRule, complianceRule}
 

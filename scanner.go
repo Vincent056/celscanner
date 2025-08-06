@@ -18,6 +18,7 @@ package celscanner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -303,13 +304,13 @@ func (s *Scanner) compileCelExpression(env *cel.Env, expression string) (*cel.As
 			detailedErr := fmt.Sprintf("CEL compilation failed: undeclared reference to '%s'. "+
 				"Available variables and resources should be declared in rule inputs or variables. "+
 				"Original error: %v", undeclaredVar, errMsg)
-			return nil, fmt.Errorf(detailedErr)
+			return nil, errors.New(detailedErr)
 		}
 
 		// Check for syntax errors
 		if strings.Contains(errMsg, "syntax error") || strings.Contains(errMsg, "ERROR: <input>") {
 			detailedErr := fmt.Sprintf("CEL syntax error in expression '%s': %v", expression, errMsg)
-			return nil, fmt.Errorf(detailedErr)
+			return nil, errors.New(detailedErr)
 		}
 
 		// Check for type errors
@@ -317,12 +318,12 @@ func (s *Scanner) compileCelExpression(env *cel.Env, expression string) (*cel.As
 			detailedErr := fmt.Sprintf("CEL type error - no matching function overload found. "+
 				"Check that you're using correct types and functions. Expression: '%s'. Error: %v",
 				expression, errMsg)
-			return nil, fmt.Errorf(detailedErr)
+			return nil, errors.New(detailedErr)
 		}
 
 		// Generic compilation error with expression context
 		detailedErr := fmt.Sprintf("CEL compilation error in expression '%s': %v", expression, errMsg)
-		return nil, fmt.Errorf(detailedErr)
+		return nil, errors.New(detailedErr)
 	}
 	return ast, nil
 }

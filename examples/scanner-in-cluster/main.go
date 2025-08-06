@@ -102,7 +102,7 @@ func runVolumeBasedScanning(scanner *celscanner.Scanner) {
 		fmt.Printf("\n🔍 Scanning volume: %s (%s)\n", vol.name, vol.mountPath)
 
 		// Rule to check if volume exists and has proper permissions
-		rule := celscanner.NewRuleBuilder(fmt.Sprintf("volume-security-%s", vol.name)).
+		rule, err := celscanner.NewRuleBuilder(fmt.Sprintf("volume-security-%s", vol.name)).
 			WithFileInput("volume_check", vol.mountPath, "", false, true).
 			SetExpression(`size(volume_check) > 0`).
 			WithName(fmt.Sprintf("Volume Security: %s", vol.name)).
@@ -111,6 +111,10 @@ func runVolumeBasedScanning(scanner *celscanner.Scanner) {
 			WithExtension("mount_path", vol.mountPath).
 			WithExtension("volume_type", "shared").
 			Build()
+		if err != nil {
+			fmt.Printf("   ❌ Error building volume rule: %v\n", err)
+			continue
+		}
 
 		runSingleRule(scanner, rule)
 
@@ -129,81 +133,102 @@ func runKubernetesAPIScanning(scanner *celscanner.Scanner) {
 	// This approach uses Kubernetes APIs to check security policies
 	// without needing to exec into containers
 
+	// Check Pod Security Context
+	podSecurityRule, err := celscanner.NewRuleBuilder("pod-security-context").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod, 
+				has(pod.spec.securityContext) && 
+				has(pod.spec.securityContext.runAsNonRoot) &&
+				pod.spec.securityContext.runAsNonRoot == true
+			)
+		`).
+		WithName("Pod Security Context Check").
+		WithDescription("Ensures all pods run as non-root user").
+		WithExtension("severity", "HIGH").
+		WithExtension("compliance", "CIS").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building pod security rule: %v\n", err)
+		return
+	}
+
+	// Check Container Security Context
+	containerSecurityRule, err := celscanner.NewRuleBuilder("container-security-context").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod,
+				pod.spec.containers.all(container,
+					has(container.securityContext) &&
+					(!has(container.securityContext.privileged) || 
+					 container.securityContext.privileged == false) &&
+					(!has(container.securityContext.allowPrivilegeEscalation) ||
+					 container.securityContext.allowPrivilegeEscalation == false)
+				)
+			)
+		`).
+		WithName("Container Security Context").
+		WithDescription("Ensures containers are not privileged").
+		WithExtension("severity", "CRITICAL").
+		WithExtension("compliance", "STIG").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building container security rule: %v\n", err)
+		return
+	}
+
+	// Check Resource Limits
+	resourceLimitsRule, err := celscanner.NewRuleBuilder("resource-limits-check").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod,
+				pod.spec.containers.all(container,
+					has(container.resources) &&
+					has(container.resources.limits) &&
+					has(container.resources.limits.memory) &&
+					has(container.resources.limits.cpu)
+				)
+			)
+		`).
+		WithName("Resource Limits Required").
+		WithDescription("All containers must have resource limits").
+		WithExtension("severity", "MEDIUM").
+		WithExtension("compliance", "Best Practice").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building resource limits rule: %v\n", err)
+		return
+	}
+
+	// Check Volume Security
+	volumeSecurityRule, err := celscanner.NewRuleBuilder("volume-security-check").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod,
+				!has(pod.spec.volumes) ||
+				pod.spec.volumes.all(volume,
+					!has(volume.hostPath) &&
+					(!has(volume.secret) || 
+					 (has(volume.secret.defaultMode) && 
+					  volume.secret.defaultMode <= 384))
+				)
+			)
+		`).
+		WithName("Volume Security Check").
+		WithDescription("Ensures secure volume configurations").
+		WithExtension("severity", "HIGH").
+		WithExtension("compliance", "Security").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building volume security rule: %v\n", err)
+		return
+	}
+
 	securityRules := []celscanner.CelRule{
-		// Check Pod Security Context
-		celscanner.NewRuleBuilder("pod-security-context").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod, 
-					has(pod.spec.securityContext) && 
-					has(pod.spec.securityContext.runAsNonRoot) &&
-					pod.spec.securityContext.runAsNonRoot == true
-				)
-			`).
-			WithName("Pod Security Context Check").
-			WithDescription("Ensures all pods run as non-root user").
-			WithExtension("severity", "HIGH").
-			WithExtension("compliance", "CIS").
-			Build(),
-
-		// Check Container Security Context
-		celscanner.NewRuleBuilder("container-security-context").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod,
-					pod.spec.containers.all(container,
-						has(container.securityContext) &&
-						(!has(container.securityContext.privileged) || 
-						 container.securityContext.privileged == false) &&
-						(!has(container.securityContext.allowPrivilegeEscalation) ||
-						 container.securityContext.allowPrivilegeEscalation == false)
-					)
-				)
-			`).
-			WithName("Container Security Context").
-			WithDescription("Ensures containers are not privileged").
-			WithExtension("severity", "CRITICAL").
-			WithExtension("compliance", "STIG").
-			Build(),
-
-		// Check Resource Limits
-		celscanner.NewRuleBuilder("resource-limits-check").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod,
-					pod.spec.containers.all(container,
-						has(container.resources) &&
-						has(container.resources.limits) &&
-						has(container.resources.limits.memory) &&
-						has(container.resources.limits.cpu)
-					)
-				)
-			`).
-			WithName("Resource Limits Required").
-			WithDescription("All containers must have resource limits").
-			WithExtension("severity", "MEDIUM").
-			WithExtension("compliance", "Best Practice").
-			Build(),
-
-		// Check Volume Security
-		celscanner.NewRuleBuilder("volume-security-check").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod,
-					!has(pod.spec.volumes) ||
-					pod.spec.volumes.all(volume,
-						!has(volume.hostPath) &&
-						(!has(volume.secret) || 
-						 (has(volume.secret.defaultMode) && 
-						  volume.secret.defaultMode <= 384))
-					)
-				)
-			`).
-			WithName("Volume Security Check").
-			WithDescription("Ensures secure volume configurations").
-			WithExtension("severity", "HIGH").
-			WithExtension("compliance", "Security").
-			Build(),
+		podSecurityRule,
+		containerSecurityRule,
+		resourceLimitsRule,
+		volumeSecurityRule,
 	}
 
 	// Execute API-based security rules
@@ -219,59 +244,75 @@ func runPodSecurityStandardsCheck(scanner *celscanner.Scanner) {
 	fmt.Println(strings.Repeat("-", 55))
 
 	// Pod Security Standards provide built-in security policies
+	// Baseline Policy: No privileged containers
+	pssBaselineRule, err := celscanner.NewRuleBuilder("pss-baseline-privileged").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod,
+				pod.spec.containers.all(container,
+					!has(container.securityContext.privileged) ||
+					container.securityContext.privileged == false
+				)
+			)
+		`).
+		WithName("PSS Baseline: No Privileged Containers").
+		WithDescription("Pod Security Standard baseline policy").
+		WithExtension("severity", "HIGH").
+		WithExtension("standard", "baseline").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building PSS baseline rule: %v\n", err)
+		return
+	}
+
+	// Restricted Policy: Must run as non-root
+	pssNonRootRule, err := celscanner.NewRuleBuilder("pss-restricted-nonroot").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod,
+				(has(pod.spec.securityContext.runAsNonRoot) &&
+				 pod.spec.securityContext.runAsNonRoot == true) ||
+				pod.spec.containers.all(container,
+					has(container.securityContext.runAsNonRoot) &&
+					container.securityContext.runAsNonRoot == true
+				)
+			)
+		`).
+		WithName("PSS Restricted: Run as Non-Root").
+		WithDescription("Pod Security Standard restricted policy").
+		WithExtension("severity", "HIGH").
+		WithExtension("standard", "restricted").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building PSS non-root rule: %v\n", err)
+		return
+	}
+
+	// Restricted Policy: No privilege escalation
+	pssNoEscalationRule, err := celscanner.NewRuleBuilder("pss-restricted-no-escalation").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod,
+				pod.spec.containers.all(container,
+					!has(container.securityContext.allowPrivilegeEscalation) ||
+					container.securityContext.allowPrivilegeEscalation == false
+				)
+			)
+		`).
+		WithName("PSS Restricted: No Privilege Escalation").
+		WithDescription("Prevents privilege escalation").
+		WithExtension("severity", "HIGH").
+		WithExtension("standard", "restricted").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building PSS no escalation rule: %v\n", err)
+		return
+	}
+
 	podSecurityRules := []celscanner.CelRule{
-		// Baseline Policy: No privileged containers
-		celscanner.NewRuleBuilder("pss-baseline-privileged").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod,
-					pod.spec.containers.all(container,
-						!has(container.securityContext.privileged) ||
-						container.securityContext.privileged == false
-					)
-				)
-			`).
-			WithName("PSS Baseline: No Privileged Containers").
-			WithDescription("Pod Security Standard baseline policy").
-			WithExtension("severity", "HIGH").
-			WithExtension("standard", "baseline").
-			Build(),
-
-		// Restricted Policy: Must run as non-root
-		celscanner.NewRuleBuilder("pss-restricted-nonroot").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod,
-					(has(pod.spec.securityContext.runAsNonRoot) &&
-					 pod.spec.securityContext.runAsNonRoot == true) ||
-					pod.spec.containers.all(container,
-						has(container.securityContext.runAsNonRoot) &&
-						container.securityContext.runAsNonRoot == true
-					)
-				)
-			`).
-			WithName("PSS Restricted: Run as Non-Root").
-			WithDescription("Pod Security Standard restricted policy").
-			WithExtension("severity", "HIGH").
-			WithExtension("standard", "restricted").
-			Build(),
-
-		// Restricted Policy: No privilege escalation
-		celscanner.NewRuleBuilder("pss-restricted-no-escalation").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod,
-					pod.spec.containers.all(container,
-						!has(container.securityContext.allowPrivilegeEscalation) ||
-						container.securityContext.allowPrivilegeEscalation == false
-					)
-				)
-			`).
-			WithName("PSS Restricted: No Privilege Escalation").
-			WithDescription("Prevents privilege escalation").
-			WithExtension("severity", "HIGH").
-			WithExtension("standard", "restricted").
-			Build(),
+		pssBaselineRule,
+		pssNonRootRule,
+		pssNoEscalationRule,
 	}
 
 	for _, rule := range podSecurityRules {
@@ -286,36 +327,47 @@ func runSecurityContextConstraintsCheck(scanner *celscanner.Scanner) {
 	fmt.Println(strings.Repeat("-", 55))
 
 	// OpenShift Security Context Constraints provide additional security
-	sccRules := []celscanner.CelRule{
-		// Check SCC assignment
-		celscanner.NewRuleBuilder("scc-assignment-check").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod,
-					has(pod.metadata.annotations) &&
-					has(pod.metadata.annotations["openshift.io/scc"])
-				)
-			`).
-			WithName("SCC Assignment Validation").
-			WithDescription("Ensures pods have proper SCC assignment").
-			WithExtension("severity", "MEDIUM").
-			WithExtension("platform", "openshift").
-			Build(),
+	// Check SCC assignment
+	sccAssignmentRule, err := celscanner.NewRuleBuilder("scc-assignment-check").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod,
+				has(pod.metadata.annotations) &&
+				has(pod.metadata.annotations["openshift.io/scc"])
+			)
+		`).
+		WithName("SCC Assignment Validation").
+		WithDescription("Ensures pods have proper SCC assignment").
+		WithExtension("severity", "MEDIUM").
+		WithExtension("platform", "openshift").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building SCC assignment rule: %v\n", err)
+		return
+	}
 
-		// Check for restricted SCC usage
-		celscanner.NewRuleBuilder("scc-restricted-usage").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod,
-					!has(pod.metadata.annotations["openshift.io/scc"]) ||
-					pod.metadata.annotations["openshift.io/scc"] in ["restricted", "restricted-v2"]
-				)
-			`).
-			WithName("Restricted SCC Usage").
-			WithDescription("Prefers restricted Security Context Constraints").
-			WithExtension("severity", "HIGH").
-			WithExtension("platform", "openshift").
-			Build(),
+	// Check for restricted SCC usage
+	sccRestrictedRule, err := celscanner.NewRuleBuilder("scc-restricted-usage").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod,
+				!has(pod.metadata.annotations["openshift.io/scc"]) ||
+				pod.metadata.annotations["openshift.io/scc"] in ["restricted", "restricted-v2"]
+			)
+		`).
+		WithName("Restricted SCC Usage").
+		WithDescription("Prefers restricted Security Context Constraints").
+		WithExtension("severity", "HIGH").
+		WithExtension("platform", "openshift").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building SCC restricted rule: %v\n", err)
+		return
+	}
+
+	sccRules := []celscanner.CelRule{
+		sccAssignmentRule,
+		sccRestrictedRule,
 	}
 
 	for _, rule := range sccRules {
@@ -344,7 +396,7 @@ func runHostFilesystemScanning(scanner *celscanner.Scanner) {
 		fmt.Printf("\n🔍 Checking host path: %s\n", hostPath)
 
 		// Check if host path is accessible and secure
-		rule := celscanner.NewRuleBuilder(fmt.Sprintf("host-file-%s", strings.ReplaceAll(hostPath, "/", "-"))).
+		rule, err := celscanner.NewRuleBuilder(fmt.Sprintf("host-file-%s", strings.ReplaceAll(hostPath, "/", "-"))).
 			WithFileInput("host_file", hostPath, "text", false, true).
 			SetExpression(`size(host_file) > 0`).
 			WithName(fmt.Sprintf("Host File Access: %s", filepath.Base(hostPath))).
@@ -353,6 +405,10 @@ func runHostFilesystemScanning(scanner *celscanner.Scanner) {
 			WithExtension("host_path", hostPath).
 			WithExtension("privileged", true).
 			Build()
+		if err != nil {
+			fmt.Printf("   ❌ Error building host file rule: %v\n", err)
+			continue
+		}
 
 		runSingleRule(scanner, rule)
 	}
@@ -366,51 +422,67 @@ func runServiceAccountValidation(scanner *celscanner.Scanner) {
 	fmt.Println("\n👤 Approach 6: Service Account & RBAC Validation")
 	fmt.Println(strings.Repeat("-", 55))
 
+	// Check ServiceAccount usage
+	serviceAccountRule, err := celscanner.NewRuleBuilder("serviceaccount-usage").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod,
+				!has(pod.spec.serviceAccountName) ||
+				pod.spec.serviceAccountName != "default"
+			)
+		`).
+		WithName("Non-Default ServiceAccount Usage").
+		WithDescription("Pods should use specific ServiceAccounts").
+		WithExtension("severity", "MEDIUM").
+		WithExtension("compliance", "Best Practice").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building service account rule: %v\n", err)
+		return
+	}
+
+	// Check automountServiceAccountToken
+	tokenAutomountRule, err := celscanner.NewRuleBuilder("sa-token-automount").
+		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		SetExpression(`
+			has(pods.items) && pods.items.all(pod,
+				has(pod.spec.automountServiceAccountToken) &&
+				pod.spec.automountServiceAccountToken == false
+			)
+		`).
+		WithName("ServiceAccount Token Automount").
+		WithDescription("Disable unnecessary token automounting").
+		WithExtension("severity", "MEDIUM").
+		WithExtension("compliance", "Security").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building token automount rule: %v\n", err)
+		return
+	}
+
+	// Check for ClusterRoleBindings
+	clusterRoleBindingRule, err := celscanner.NewRuleBuilder("clusterrolebinding-check").
+		WithKubernetesInput("clusterrolebindings", "rbac.authorization.k8s.io", "v1", "clusterrolebindings", "", "").
+		SetExpression(`
+			has(clusterrolebindings.items) && clusterrolebindings.items.all(binding,
+				binding.roleRef.name != "cluster-admin" ||
+				size(binding.subjects) == 0
+			)
+		`).
+		WithName("Cluster Admin Binding Check").
+		WithDescription("Restrict cluster-admin role usage").
+		WithExtension("severity", "HIGH").
+		WithExtension("compliance", "RBAC").
+		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building cluster role binding rule: %v\n", err)
+		return
+	}
+
 	rbacRules := []celscanner.CelRule{
-		// Check ServiceAccount usage
-		celscanner.NewRuleBuilder("serviceaccount-usage").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod,
-					!has(pod.spec.serviceAccountName) ||
-					pod.spec.serviceAccountName != "default"
-				)
-			`).
-			WithName("Non-Default ServiceAccount Usage").
-			WithDescription("Pods should use specific ServiceAccounts").
-			WithExtension("severity", "MEDIUM").
-			WithExtension("compliance", "Best Practice").
-			Build(),
-
-		// Check automountServiceAccountToken
-		celscanner.NewRuleBuilder("sa-token-automount").
-			WithKubernetesInput("pods", "", "v1", "pods", "", "").
-			SetExpression(`
-				has(pods.items) && pods.items.all(pod,
-					has(pod.spec.automountServiceAccountToken) &&
-					pod.spec.automountServiceAccountToken == false
-				)
-			`).
-			WithName("ServiceAccount Token Automount").
-			WithDescription("Disable unnecessary token automounting").
-			WithExtension("severity", "MEDIUM").
-			WithExtension("compliance", "Security").
-			Build(),
-
-		// Check for ClusterRoleBindings
-		celscanner.NewRuleBuilder("clusterrolebinding-check").
-			WithKubernetesInput("clusterrolebindings", "rbac.authorization.k8s.io", "v1", "clusterrolebindings", "", "").
-			SetExpression(`
-				has(clusterrolebindings.items) && clusterrolebindings.items.all(binding,
-					binding.roleRef.name != "cluster-admin" ||
-					size(binding.subjects) == 0
-				)
-			`).
-			WithName("Cluster Admin Binding Check").
-			WithDescription("Restrict cluster-admin role usage").
-			WithExtension("severity", "HIGH").
-			WithExtension("compliance", "RBAC").
-			Build(),
+		serviceAccountRule,
+		tokenAutomountRule,
+		clusterRoleBindingRule,
 	}
 
 	for _, rule := range rbacRules {
@@ -424,7 +496,7 @@ func runCriticalVolumeChecks(scanner *celscanner.Scanner, volumeName, mountPath 
 	fmt.Printf("   🔒 Running critical volume checks for %s\n", volumeName)
 
 	// Check for sensitive files in volume
-	sensitiveRule := celscanner.NewRuleBuilder(fmt.Sprintf("sensitive-files-%s", volumeName)).
+	sensitiveRule, err := celscanner.NewRuleBuilder(fmt.Sprintf("sensitive-files-%s", volumeName)).
 		WithSystemInput("sensitive_check", "", "find", []string{
 			mountPath, "-type", "f", "-name", "*secret*", "-o", "-name", "*key*", "-o", "-name", "*password*",
 		}).
@@ -434,6 +506,10 @@ func runCriticalVolumeChecks(scanner *celscanner.Scanner, volumeName, mountPath 
 		WithExtension("severity", "HIGH").
 		WithExtension("volume", volumeName).
 		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building sensitive files rule: %v\n", err)
+		return
+	}
 
 	runSingleRule(scanner, sensitiveRule)
 }
@@ -442,7 +518,7 @@ func runPrivilegedSystemChecks(scanner *celscanner.Scanner) {
 	fmt.Printf("\n🔓 Privileged System Checks:\n")
 
 	// Check container runtime security
-	rule := celscanner.NewRuleBuilder("container-runtime-check").
+	rule, err := celscanner.NewRuleBuilder("container-runtime-check").
 		WithSystemInput("runtime_check", "", "ps", []string{"aux"}).
 		SetExpression(`runtime_check.success && size(runtime_check.output) > 0`).
 		WithName("Container Runtime Process Check").
@@ -450,6 +526,10 @@ func runPrivilegedSystemChecks(scanner *celscanner.Scanner) {
 		WithExtension("severity", "INFO").
 		WithExtension("privileged", true).
 		Build()
+	if err != nil {
+		fmt.Printf("   ❌ Error building runtime check rule: %v\n", err)
+		return
+	}
 
 	runSingleRule(scanner, rule)
 }
@@ -528,12 +608,16 @@ func init() {
 // Helper function to check if we have Kubernetes access
 func checkKubernetesAccess(scanner *celscanner.Scanner) bool {
 	// Try a simple rule that doesn't require specific resources
-	testRule := celscanner.NewRuleBuilder("k8s-access-test").
+	testRule, err := celscanner.NewRuleBuilder("k8s-access-test").
 		WithSystemInput("test_cmd", "", "echo", []string{"test"}).
 		SetExpression(`test_cmd.success`).
 		WithName("Kubernetes Access Test").
 		WithDescription("Tests if we can execute rules").
 		Build()
+	if err != nil {
+		// If we can't even build the rule, we definitely don't have access
+		return false
+	}
 
 	config := celscanner.ScanConfig{
 		Rules:              []celscanner.CelRule{testRule},
@@ -541,6 +625,6 @@ func checkKubernetesAccess(scanner *celscanner.Scanner) bool {
 		EnableDebugLogging: false,
 	}
 
-	_, err := scanner.Scan(context.Background(), config)
+	_, err = scanner.Scan(context.Background(), config)
 	return err == nil
 }

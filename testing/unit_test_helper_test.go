@@ -25,12 +25,15 @@ func TestUnitTestHelper_BasicRule(t *testing.T) {
 	tester := NewRuleTester()
 
 	// Create a simple rule that should pass
-	rule := celscanner.NewRuleBuilder("test-basic").
+	rule, err := celscanner.NewRuleBuilder("test-basic").
 		WithSystemInput("dummy", "echo", "", []string{"test"}).
 		SetExpression("true").
 		WithName("Basic Test Rule").
 		WithDescription("A simple rule that always passes").
 		Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
 
 	// Test that the rule passes
 	result := tester.WithRule(rule).
@@ -57,7 +60,7 @@ func TestUnitTestHelper_MockData(t *testing.T) {
 	}
 
 	// Create a rule that checks for resource limits
-	rule := celscanner.NewRuleBuilder("resource-limits").
+	rule, err := celscanner.NewRuleBuilder("resource-limits").
 		WithKubernetesInput("pods", "", "v1", "pods", "", "").
 		SetExpression(`
 			has(pods.items) &&
@@ -71,6 +74,9 @@ func TestUnitTestHelper_MockData(t *testing.T) {
 		`).
 		WithName("Resource Limits Check").
 		Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
 
 	// Test with mock data
 	result := tester.WithRule(rule).
@@ -87,12 +93,15 @@ func TestUnitTestHelper_ShouldFail(t *testing.T) {
 	tester := NewRuleTester()
 
 	// Create a rule that should fail
-	rule := celscanner.NewRuleBuilder("test-fail").
+	rule, err := celscanner.NewRuleBuilder("test-fail").
 		WithSystemInput("dummy", "echo", "", []string{"test"}).
 		SetExpression("false").
 		WithName("Failing Test Rule").
 		WithDescription("A simple rule that always fails").
 		Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
 
 	// Test that the rule fails
 	result := tester.WithRule(rule).
@@ -117,7 +126,7 @@ func TestUnitTestHelper_HTTPMockData(t *testing.T) {
 	})
 
 	// Create a rule that checks HTTP response
-	rule := celscanner.NewRuleBuilder("http-health").
+	rule, err := celscanner.NewRuleBuilder("http-health").
 		WithHTTPInput("api", "https://api.example.com/health", "GET", map[string]string{}, nil).
 		SetExpression(`
 			api.success &&
@@ -127,6 +136,9 @@ func TestUnitTestHelper_HTTPMockData(t *testing.T) {
 		`).
 		WithName("HTTP Health Check").
 		Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
 
 	// Test with mock HTTP data
 	result := tester.WithRule(rule).
@@ -146,13 +158,16 @@ func TestUnitTestHelper_TestSuite(t *testing.T) {
 	suite := NewSecurityTestSuite("Basic Security Tests")
 
 	// Add some test cases
-	passingRule := celscanner.NewRuleBuilder("always-pass").
+	passingRule, err := celscanner.NewRuleBuilder("always-pass").
 		WithSystemInput("dummy", "echo", "", []string{"test"}).
 		SetExpression("true").
 		WithName("Always Pass").
 		Build()
+	if err != nil {
+		t.Fatalf("Failed to build rule: %v", err)
+	}
 
-	failingRule := celscanner.NewRuleBuilder("always-fail").
+	failingRule, err := celscanner.NewRuleBuilder("always-fail").
 		WithSystemInput("dummy", "echo", "", []string{"test"}).
 		SetExpression("false").
 		WithName("Always Fail").

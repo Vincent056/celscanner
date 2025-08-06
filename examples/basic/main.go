@@ -48,7 +48,7 @@ func main() {
 
 	// Example 4: Using the fluent builder pattern (inputs first, expression last)
 	fmt.Println("\n4. Using the fluent builder pattern:")
-	complexRule := celscanner.NewRuleBuilder("security-compliance").
+	complexRule, err := celscanner.NewRuleBuilder("security-compliance").
 		WithKubernetesInput("pods", "", "v1", "pods", "", "").
 		WithFileInput("policy", "/etc/security/policy.yaml", "yaml", false, false).
 		SetExpression("size(pods) > 0 && has(policy.securityEnabled) && policy.securityEnabled == true").
@@ -57,6 +57,10 @@ func main() {
 		WithExtension("category", "security").
 		WithExtension("owner", "security-team").
 		Build()
+	if err != nil {
+		fmt.Printf("   Error building rule: %v\n", err)
+		return
+	}
 
 	fmt.Printf("   Rule ID: %s\n", complexRule.Identifier())
 	fmt.Printf("   Rule Name: %s\n", complexRule.Metadata().Name)
@@ -83,12 +87,16 @@ func main() {
 	fmt.Printf("   Available inputs: %v\n", builder.GetAvailableInputNames())
 
 	// Now set expression that uses the defined inputs
-	healthRule := builder.
+	healthRule, err := builder.
 		SetExpression("size(pods) > 0 && config.monitoring.enabled == true && nginx.active == true && api.status == 'ok'").
 		WithName("Comprehensive Health Check").
 		WithDescription("Validates system health across multiple dimensions").
 		WithExtension("severity", "HIGH").
 		Build()
+	if err != nil {
+		fmt.Printf("   Error building health rule: %v\n", err)
+		return
+	}
 
 	fmt.Printf("   Health check rule: %s\n", healthRule.Metadata().Name)
 	fmt.Printf("   Uses %d inputs: %v\n", len(healthRule.Inputs()), builder.GetAvailableInputNames())
