@@ -36,7 +36,7 @@ func main() {
 
 	// Rule 1: Check for pods without security context
 	podSecurityRule, err := celscanner.NewRuleBuilder("pod-security-context").
-		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		WithKubernetesInput("pods", "", "v1", "pods", "test-namespace", "").
 		SetExpression("pods.items.all(pod, has(pod.spec.securityContext))").
 		WithName("Pod Security Context Check").
 		WithDescription("Ensures all pods have security context defined").
@@ -49,7 +49,7 @@ func main() {
 
 	// Rule 2: Check for containers without resource limits
 	resourceLimitsRule, err := celscanner.NewRuleBuilder("container-resource-limits").
-		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		WithKubernetesInput("pods", "", "v1", "pods", "test-namespace", "").
 		SetExpression(`pods.items.all(pod, 
 			pod.spec.containers.all(container, 
 				has(container.resources) && 
@@ -69,7 +69,7 @@ func main() {
 
 	// Rule 3: Check for privileged containers
 	privilegedRule, err := celscanner.NewRuleBuilder("privileged-containers").
-		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		WithKubernetesInput("pods", "", "v1", "pods", "test-namespace", "").
 		SetExpression(`!pods.items.exists(pod,
 			pod.spec.containers.exists(container,
 				has(container.securityContext) &&
@@ -88,7 +88,7 @@ func main() {
 
 	// Rule 4: Check for default service account usage
 	serviceAccountRule, err := celscanner.NewRuleBuilder("service-account-check").
-		WithKubernetesInput("pods", "", "v1", "pods", "", "").
+		WithKubernetesInput("pods", "", "v1", "pods", "test-namespace", "").
 		SetExpression(`!pods.items.exists(pod,
 			!has(pod.spec.serviceAccountName) || 
 			pod.spec.serviceAccountName == "default"
@@ -102,11 +102,32 @@ func main() {
 		log.Fatalf("Failed to build service account rule: %v", err)
 	}
 
+	// Multi-resource compliance rule
+	networkpoliciesRule, err := celscanner.NewRuleBuilder("namespace-compliance").
+		WithKubernetesInput("namespaces", "", "v1", "namespaces", "", "").
+		WithKubernetesInput("networkpolicies", "networking.k8s.io", "v1", "networkpolicies", "", "").
+		SetExpression(`
+			namespaces.items.all(ns, 
+				!(ns.metadata.name.startsWith("openshift-") || ns.metadata.name.startsWith("kube-")) ?
+					networkpolicies.items.exists(np, 
+						np.metadata.namespace == ns.metadata.name
+					)
+				: true
+			)
+		`).
+		WithName("Namespace Network Policy Compliance").
+		WithDescription("Ensures all namespaces have associated network policies").
+		Build()
+	if err != nil {
+		log.Fatalf("Failed to build compliance rule: %v", err)
+	}
+
 	securityRules := []celscanner.CelRule{
 		podSecurityRule,
 		resourceLimitsRule,
 		privilegedRule,
 		serviceAccountRule,
+		networkpoliciesRule,
 	}
 
 	fmt.Printf("   Created %d security rules\n", len(securityRules))

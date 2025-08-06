@@ -50,7 +50,13 @@ func main() {
 	complianceRule, err := celscanner.NewRuleBuilder("namespace-compliance").
 		WithKubernetesInput("namespaces", "", "v1", "namespaces", "", "").
 		WithKubernetesInput("networkpolicies", "networking.k8s.io", "v1", "networkpolicies", "", "").
-		SetExpression("size(namespaces.items) > 0 && size(networkpolicies.items) > 0").
+		SetExpression(`
+			namespaces.items.all(ns, 
+				networkpolicies.items.exists(np, 
+					np.metadata.namespace == ns.metadata.name
+				)
+			)
+		`).
 		WithName("Namespace Network Policy Compliance").
 		WithDescription("Ensures namespaces have associated network policies").
 		Build()
